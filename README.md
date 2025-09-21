@@ -1,6 +1,6 @@
 # 🤖 Sentiment Analysis ML Platform
 
-Uma plataforma completa para treinamento e análise de modelos de sentiment analysis usando Naive Bayes + TF-IDF, com tracking de experimentos via MLflow.
+Uma plataforma completa para treinamento e análise de modelos de sentiment analysis, com tracking de experimentos via MLflow.
 
 ## 📋 Arquitetura do Sistema
 
