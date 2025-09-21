@@ -1,0 +1,7 @@
+data/*
+models/*
+*/datasets/*
+*/models/*
+*/mlartifacts/*
+*/mlruns/*
+*.pyc
