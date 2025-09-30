@@ -3,9 +3,16 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import os
+import sys
+import io
+from pathlib import Path
+
+# Fix encoding no Windows
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score, accuracy_score, precision_score, recall_score
 
 from tensorflow.keras import layers, models, callbacks, optimizers
 from keras.saving import register_keras_serializable
@@ -14,6 +21,20 @@ from tensorflow.keras import mixed_precision
 from production_model import build_bilstm64_dnn
 import mlflow
 import mlflow.tensorflow
+from mlflow.models.signature import ModelSignature
+from mlflow.types.schema import Schema, TensorSpec
+
+# Configure Google Cloud credentials for GCS artifact storage
+credentials_path = Path(__file__).parent / "mlflow-client-credentials.json"
+if credentials_path.exists():
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credentials_path)
+    print(f"✅ Google Cloud credentials configuradas: {credentials_path}")
+else:
+    print(f"⚠️ Arquivo de credenciais não encontrado: {credentials_path}")
+
+# Enable artifact uploads through MLflow proxy (required for remote tracking server)
+os.environ["MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD"] = "true"
+os.environ["MLFLOW_MULTIPART_UPLOAD_CHUNK_SIZE"] = str(100 * 1024 * 1024)  # 100MB chunks
 
 print("GPUs:", tf.config.list_physical_devices('GPU'))
 
@@ -29,12 +50,31 @@ def train_production_model(data_path="datasets/Reviews.csv"):
     mlflow.set_tracking_uri("https://mlflow-server-273169854208.us-central1.run.app")
 
     # Set experiment
-    mlflow.set_experiment("reviews_bilstm_vs_dnn")
+    experiment = mlflow.set_experiment("reviews_bilstm_train")
+    print(f"📊 Experiment ID: {experiment.experiment_id}")
+    print(f"📊 Artifact Location: {experiment.artifact_location}")
+
+    # If artifact location is /tmp (old experiment), warn the user
+    if experiment.artifact_location.startswith('/tmp'):
+        print("⚠️  AVISO: Experiment configurado com artifact location local (/tmp)")
+        print("⚠️  Artifacts não serão persistidos! Considere criar novo experiment.")
 
     # Start MLflow run
-    with mlflow.start_run(run_name="production_bilstm64_dnn"):
-        # Enable autologging for Keras/TensorFlow
-        mlflow.tensorflow.autolog()
+    with mlflow.start_run(run_name="production_bilstm64_dnn") as run:
+        print(f"🔗 Run ID: {run.info.run_id}")
+        print(f"🔗 Artifact URI: {run.info.artifact_uri}")
+
+        # Enable autologging for metrics only (disable params, models, and datasets)
+        mlflow.tensorflow.autolog(
+            log_models=False,
+            log_datasets=False,
+            log_input_examples=False,
+            log_model_signatures=False,
+            disable=False,
+            exclusive=False,
+            disable_for_unsupported_versions=False,
+            silent=False
+        )
 
         # 1) Dados (pré-processo)
         print(f"📥 Carregando dados de: {data_path}")
@@ -151,6 +191,21 @@ def train_production_model(data_path="datasets/Reviews.csv"):
             verbose=1
         )
 
+        # Print best epoch info and log best epoch metrics
+        best_epoch = np.argmin(history.history['val_loss'])
+        print(f"\n📊 Melhor época: {best_epoch + 1}/{len(history.history['loss'])}")
+        print(f"   Train Loss: {history.history['loss'][best_epoch]:.4f} | Val Loss: {history.history['val_loss'][best_epoch]:.4f}")
+        print(f"   Train AUC: {history.history['auc'][best_epoch]:.4f} | Val AUC: {history.history['val_auc'][best_epoch]:.4f}")
+        print(f"   Train Acc: {history.history['accuracy'][best_epoch]:.4f} | Val Acc: {history.history['val_accuracy'][best_epoch]:.4f}")
+
+        # Log best epoch validation metrics (these are what the final model uses)
+        mlflow.log_metric("best_epoch", best_epoch + 1)
+        mlflow.log_metric("best_val_loss", history.history['val_loss'][best_epoch])
+        mlflow.log_metric("best_val_accuracy", history.history['val_accuracy'][best_epoch])
+        mlflow.log_metric("best_val_auc", history.history['val_auc'][best_epoch])
+        mlflow.log_metric("best_val_precision", history.history['val_precision'][best_epoch])
+        mlflow.log_metric("best_val_recall", history.history['val_recall'][best_epoch])
+
         # 6) Threshold ótimo (val)
         y_val_proba = model.predict(val_ds, verbose=0).ravel()
         thr_grid = np.linspace(0.2, 0.8, 31)
@@ -171,9 +226,30 @@ def train_production_model(data_path="datasets/Reviews.csv"):
         roc_auc = roc_auc_score(y_test, y_test_proba)
         print("ROC-AUC:", round(roc_auc, 4))
 
-        # Log final metrics
+        # Calculate additional test metrics
+        test_accuracy = accuracy_score(y_test, y_test_pred)
+        test_precision = precision_score(y_test, y_test_pred)
+        test_recall = recall_score(y_test, y_test_pred)
+        test_f1 = f1_score(y_test, y_test_pred)
+
+        # Log all test metrics
+        mlflow.log_metric("test_accuracy", test_accuracy)
+        mlflow.log_metric("test_precision", test_precision)
+        mlflow.log_metric("test_recall", test_recall)
+        mlflow.log_metric("test_f1", test_f1)
         mlflow.log_metric("test_roc_auc", roc_auc)
-        mlflow.log_metric("test_f1", f1_score(y_test, y_test_pred))
+
+        # Log confusion matrix values
+        cm = confusion_matrix(y_test, y_test_pred)
+        mlflow.log_metric("test_tn", int(cm[0][0]))
+        mlflow.log_metric("test_fp", int(cm[0][1]))
+        mlflow.log_metric("test_fn", int(cm[1][0]))
+        mlflow.log_metric("test_tp", int(cm[1][1]))
+
+        # Log dataset sizes
+        mlflow.log_metric("train_size", len(X_train))
+        mlflow.log_metric("val_size", len(X_val))
+        mlflow.log_metric("test_size", len(X_test))
 
         # 8) Salvar modelo
         save_dir = "models"
@@ -182,13 +258,91 @@ def train_production_model(data_path="datasets/Reviews.csv"):
         model.save(save_path)
         print("Modelo salvo em:", save_path)
 
-        # Log model to MLflow
-        mlflow.tensorflow.log_model(model, "model")
-
-        # 9) Teste de inferência
+        # 9) Teste de inferência e criação de input example
         texts = ["absolutely loved this product!", "arrived broken and support ignored me"]
         proba = model.predict(tf.constant(texts, dtype=tf.string), verbose=0)
         print("probas:", proba.ravel())
+
+        # Create TensorSpec-based signature for MLflow
+        input_schema = Schema([TensorSpec(np.dtype(str), (-1,), name="text")])
+        output_schema = Schema([TensorSpec(np.dtype(np.float32), (-1, 1), name="predictions")])
+        signature = ModelSignature(inputs=input_schema, outputs=output_schema)
+
+        # Log model to MLflow with signature (without auto-registration)
+        mlflow.tensorflow.log_model(
+            model=model,
+            artifact_path="model",
+            signature=signature
+        )
+
+        # Log checkpoint
+        mlflow.log_artifact(save_path)
+
+        # Log confusion matrix as text artifact
+        cm_path = os.path.join(save_dir, "confusion_matrix.txt")
+        with open(cm_path, "w") as f:
+            f.write("Confusion Matrix (Test Set):\n")
+            f.write(str(confusion_matrix(y_test, y_test_pred)))
+            f.write("\n\nClassification Report:\n")
+            f.write(classification_report(y_test, y_test_pred, digits=3))
+        mlflow.log_artifact(cm_path)
+
+        # Log training history plots
+        import matplotlib.pyplot as plt
+
+        best_epoch = np.argmin(history.history['val_loss'])
+
+        # Plot loss
+        plt.figure(figsize=(12, 4))
+        plt.subplot(1, 3, 1)
+        plt.plot(history.history['loss'], label='Train Loss')
+        plt.plot(history.history['val_loss'], label='Val Loss')
+        plt.axvline(x=best_epoch, color='r', linestyle='--', alpha=0.5, label=f'Best Epoch ({best_epoch+1})')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.title('Loss over Epochs')
+        plt.grid(True)
+
+        # Plot AUC
+        plt.subplot(1, 3, 2)
+        plt.plot(history.history['auc'], label='Train AUC')
+        plt.plot(history.history['val_auc'], label='Val AUC')
+        plt.axvline(x=best_epoch, color='r', linestyle='--', alpha=0.5, label=f'Best Epoch ({best_epoch+1})')
+        plt.xlabel('Epoch')
+        plt.ylabel('AUC')
+        plt.legend()
+        plt.title('AUC over Epochs')
+        plt.grid(True)
+
+        # Plot Accuracy
+        plt.subplot(1, 3, 3)
+        plt.plot(history.history['accuracy'], label='Train Accuracy')
+        plt.plot(history.history['val_accuracy'], label='Val Accuracy')
+        plt.axvline(x=best_epoch, color='r', linestyle='--', alpha=0.5, label=f'Best Epoch ({best_epoch+1})')
+        plt.xlabel('Epoch')
+        plt.ylabel('Accuracy')
+        plt.legend()
+        plt.title('Accuracy over Epochs')
+        plt.grid(True)
+
+        plt.tight_layout()
+
+        # Log as figure (viewable in MLflow UI metrics tab)
+        mlflow.log_figure(plt.gcf(), "training_history.png")
+
+        # Also save locally and log as artifact
+        plot_path = os.path.join(save_dir, "training_history.png")
+        plt.savefig(plot_path, dpi=100)
+        plt.close()
+        mlflow.log_artifact(plot_path)
+
+        print(f"\n📊 Gráficos de treino salvos em: {plot_path}")
+
+        # Print MLflow run info
+        run = mlflow.active_run()
+        print(f"\n🔗 MLflow Run ID: {run.info.run_id}")
+        print(f"🔗 MLflow Run URL: {mlflow.get_tracking_uri()}/experiments/{run.info.experiment_id}/runs/{run.info.run_id}")
 
         return model, history, best_t
 

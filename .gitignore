@@ -9,3 +9,6 @@ deeplearning-infnet-project-api/*
 requirements-api.txt
 *README.md
 *.env
+*.bat
+mlflow-client-credentials.json
+*.keras
