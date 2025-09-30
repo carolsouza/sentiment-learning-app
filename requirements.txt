@@ -1,0 +1,17 @@
+# Core ML Libraries (Training)
+numpy
+pandas
+tensorflow
+scikit-learn
+keras
+mlflow>=2.0
+
+# Streamlit Frontend
+streamlit
+plotly
+seaborn
+matplotlib
+requests
+
+# Utilities
+python-dotenv

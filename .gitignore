@@ -5,3 +5,5 @@ models/*
 */mlartifacts/*
 */mlruns/*
 *.pyc
+deeplearning-infnet-project-api/*
+requirements-api.txt
