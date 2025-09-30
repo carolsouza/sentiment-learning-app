@@ -7,3 +7,5 @@ models/*
 *.pyc
 deeplearning-infnet-project-api/*
 requirements-api.txt
+*README.md
+*.env
