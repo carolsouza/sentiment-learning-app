@@ -110,8 +110,9 @@ class DeepLearningAPIClient:
                     "error": "API Key não configurada. Configure a variável de ambiente API_KEY ou DEEPLEARNING_API_KEY"
                 }
 
+            model_name = urllib.parse.quote("Embedding Baseline", safe='')
             response = requests.post(
-                f"{self.api_base_url}/v1/predict/registry/Embedding Baseline",
+                f"{self.api_base_url}/v1/predict/registry/{model_name}",
                 json={"text": text},
                 headers=self.headers,
                 timeout=30
@@ -152,8 +153,9 @@ class DeepLearningAPIClient:
                     "error": "API Key não configurada. Configure a variável de ambiente API_KEY ou DEEPLEARNING_API_KEY"
                 }
 
+            model_name = urllib.parse.quote("BiLSTM - Deep Learning", safe='')
             response = requests.post(
-                f"{self.api_base_url}/v1/predict/registry/BiLSTM - Deep Learning",
+                f"{self.api_base_url}/v1/predict/registry/{model_name}",
                 json={"text": text},
                 headers=self.headers,
                 timeout=30

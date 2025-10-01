@@ -18,8 +18,9 @@ def render_architecture_diagram_tab(api_client, api_status):
     </style>
     """, unsafe_allow_html=True)
 
-    # Caminho para a imagem do diagrama
-    image_path = "assets/arquitetura_projeto.png"
+    # Caminho para a imagem do diagrama (relativo ao diretório do projeto)
+    current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    image_path = os.path.join(current_dir, "assets", "arquitetura_projeto.png")
 
     # Verificar se a imagem existe
     if os.path.exists(image_path):
