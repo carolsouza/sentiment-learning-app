@@ -3,3 +3,9 @@ pandas
 requests
 plotly
 numpy
+tensorflow
+scikit-learn
+keras
+seaborn
+matplotlib
+python-dotenv

@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+from api_client import DeepLearningAPIClient
 
 
 def render_api_status_tab(api_client, api_status):
@@ -59,7 +60,6 @@ def _render_useful_links(api_status):
     st.markdown("**Deep Learning API:**")
     if api_status:
         # Pega a URL base da API
-        from api_client import DeepLearningAPIClient
         api_client = DeepLearningAPIClient()
         api_url = api_client.api_base_url
 
@@ -78,8 +78,6 @@ def _render_useful_links(api_status):
 
 def _check_mlflow_status_via_api():
     """Verifica o status do MLflow via API"""
-    from api_client import DeepLearningAPIClient
-
     api_client = DeepLearningAPIClient()
     return api_client.check_mlflow_health()
 

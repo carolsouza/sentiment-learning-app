@@ -5,15 +5,20 @@ import tensorflow as tf
 import os
 import sys
 import io
+import json
 from pathlib import Path
 
-# Fix encoding no Windows
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score, accuracy_score, precision_score, recall_score
-
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+    f1_score,
+    accuracy_score,
+    precision_score,
+    recall_score
+)
 from tensorflow.keras import layers, models, callbacks, optimizers
 from keras.saving import register_keras_serializable
 from tensorflow.keras import mixed_precision
@@ -23,6 +28,10 @@ import mlflow
 import mlflow.tensorflow
 from mlflow.models.signature import ModelSignature
 from mlflow.types.schema import Schema, TensorSpec
+
+# Fix encoding no Windows
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Configure Google Cloud credentials for GCS artifact storage
 credentials_path = Path(__file__).parent / "mlflow-client-credentials.json"
@@ -191,20 +200,30 @@ def train_production_model(data_path="datasets/Reviews.csv"):
             verbose=1
         )
 
-        # Print best epoch info and log best epoch metrics
+        # EarlyStopping com restore_best_weights=True já restaurou os melhores pesos
+        # O modelo agora está no estado da melhor época
         best_epoch = np.argmin(history.history['val_loss'])
-        print(f"\n📊 Melhor época: {best_epoch + 1}/{len(history.history['loss'])}")
+        print(f"\n{'='*60}")
+        print(f"📊 MELHOR ÉPOCA: {best_epoch + 1} (de {len(history.history['loss'])} épocas treinadas)")
+        print(f"{'='*60}")
         print(f"   Train Loss: {history.history['loss'][best_epoch]:.4f} | Val Loss: {history.history['val_loss'][best_epoch]:.4f}")
         print(f"   Train AUC: {history.history['auc'][best_epoch]:.4f} | Val AUC: {history.history['val_auc'][best_epoch]:.4f}")
         print(f"   Train Acc: {history.history['accuracy'][best_epoch]:.4f} | Val Acc: {history.history['val_accuracy'][best_epoch]:.4f}")
+        print(f"   Train Precision: {history.history['precision'][best_epoch]:.4f} | Val Precision: {history.history['val_precision'][best_epoch]:.4f}")
+        print(f"   Train Recall: {history.history['recall'][best_epoch]:.4f} | Val Recall: {history.history['val_recall'][best_epoch]:.4f}")
+        print(f"{'='*60}\n")
+        print("✅ Pesos restaurados para a melhor época pelo EarlyStopping")
 
-        # Log best epoch validation metrics (these are what the final model uses)
+        # Log best epoch number and validation metrics from history
         mlflow.log_metric("best_epoch", best_epoch + 1)
         mlflow.log_metric("best_val_loss", history.history['val_loss'][best_epoch])
         mlflow.log_metric("best_val_accuracy", history.history['val_accuracy'][best_epoch])
         mlflow.log_metric("best_val_auc", history.history['val_auc'][best_epoch])
         mlflow.log_metric("best_val_precision", history.history['val_precision'][best_epoch])
         mlflow.log_metric("best_val_recall", history.history['val_recall'][best_epoch])
+
+        # Salvar contagem total de épocas treinadas (pode ser útil para análise)
+        mlflow.log_metric("total_epochs_trained", len(history.history['loss']))
 
         # 6) Threshold ótimo (val)
         y_val_proba = model.predict(val_ds, verbose=0).ravel()
@@ -287,9 +306,32 @@ def train_production_model(data_path="datasets/Reviews.csv"):
             f.write(classification_report(y_test, y_test_pred, digits=3))
         mlflow.log_artifact(cm_path)
 
-        # Log training history plots
-        import matplotlib.pyplot as plt
+        # Save training history as JSON artifact
+        history_dict = {
+            "loss": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['loss'])],
+            "val_loss": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['val_loss'])],
+            "accuracy": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['accuracy'])],
+            "val_accuracy": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['val_accuracy'])],
+            "auc": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['auc'])],
+            "val_auc": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['val_auc'])],
+            "precision": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['precision'])],
+            "val_precision": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['val_precision'])],
+            "recall": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['recall'])],
+            "val_recall": [{"epoch": i, "value": float(v)} for i, v in enumerate(history.history['val_recall'])],
+        }
 
+        history_json_path = os.path.join(save_dir, "training_history.json")
+        with open(history_json_path, "w") as f:
+            json.dump(history_dict, f, indent=2)
+        mlflow.log_artifact(history_json_path)
+
+        # Save model architecture summary
+        model_summary_path = os.path.join(save_dir, "model_summary.txt")
+        with open(model_summary_path, "w", encoding="utf-8") as f:
+            model.summary(print_fn=lambda x: f.write(x + '\n'))
+        mlflow.log_artifact(model_summary_path)
+
+        # Log training history plots
         best_epoch = np.argmin(history.history['val_loss'])
 
         # Plot loss

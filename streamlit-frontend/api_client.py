@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import urllib.parse
 from typing import Dict, Any, List, Optional
 
 # Tenta carregar arquivo .env se disponível
@@ -101,7 +102,7 @@ class DeepLearningAPIClient:
             }
 
     def predict_baseline(self, text: str) -> Dict[str, Any]:
-        """Faz predição usando o modelo baseline"""
+        """Faz predição usando o modelo baseline do MLflow Registry"""
         try:
             if not self.has_api_key():
                 return {
@@ -110,7 +111,7 @@ class DeepLearningAPIClient:
                 }
 
             response = requests.post(
-                f"{self.api_base_url}/v1/predict/baseline",
+                f"{self.api_base_url}/v1/predict/registry/Embedding Baseline",
                 json={"text": text},
                 headers=self.headers,
                 timeout=30
@@ -143,7 +144,7 @@ class DeepLearningAPIClient:
             }
 
     def predict_production(self, text: str) -> Dict[str, Any]:
-        """Faz predição usando o modelo de produção"""
+        """Faz predição usando o modelo de produção do MLflow Registry"""
         try:
             if not self.has_api_key():
                 return {
@@ -152,7 +153,7 @@ class DeepLearningAPIClient:
                 }
 
             response = requests.post(
-                f"{self.api_base_url}/v1/predict/production",
+                f"{self.api_base_url}/v1/predict/registry/BiLSTM - Deep Learning",
                 json={"text": text},
                 headers=self.headers,
                 timeout=30
@@ -302,8 +303,8 @@ class DeepLearningAPIClient:
     # MLflow Metrics Endpoints
     # ============================
 
-    def get_baseline_metrics(self) -> Dict[str, Any]:
-        """Busca métricas do modelo baseline via API"""
+    def get_all_models(self) -> Dict[str, Any]:
+        """Lista todos os modelos registrados no MLflow"""
         try:
             if not self.has_api_key():
                 return {
@@ -312,7 +313,7 @@ class DeepLearningAPIClient:
                 }
 
             response = requests.get(
-                f"{self.api_base_url}/v1/metrics/baseline",
+                f"{self.api_base_url}/v1/models",
                 headers=self.headers,
                 timeout=30
             )
@@ -329,38 +330,49 @@ class DeepLearningAPIClient:
         except requests.exceptions.RequestException as e:
             return {
                 "success": False,
-                "error": f"Erro ao buscar métricas baseline: {str(e)}"
+                "error": f"Erro ao buscar lista de modelos: {str(e)}"
             }
+
+    def get_model_details(self, model_name: str) -> Dict[str, Any]:
+        """Busca detalhes completos de um modelo específico (métricas, artifacts, etc)"""
+        try:
+            if not self.has_api_key():
+                return {
+                    "success": False,
+                    "error": "API Key não configurada"
+                }
+
+            # URL encode do model_name para lidar com espaços e caracteres especiais
+            encoded_model_name = urllib.parse.quote(model_name, safe='')
+
+            response = requests.get(
+                f"{self.api_base_url}/v1/models/{encoded_model_name}",
+                headers=self.headers,
+                timeout=30
+            )
+
+            if response.status_code == 401:
+                return {
+                    "success": False,
+                    "error": "API Key inválida ou não autorizada"
+                }
+
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            return {
+                "success": False,
+                "error": f"Erro ao buscar detalhes do modelo '{model_name}': {str(e)}"
+            }
+
+    def get_baseline_metrics(self) -> Dict[str, Any]:
+        """Busca métricas do modelo baseline via API (DEPRECATED - use get_model_details)"""
+        return self.get_model_details("Embedding Baseline")
 
     def get_production_metrics(self) -> Dict[str, Any]:
-        """Busca métricas do modelo de produção via API"""
-        try:
-            if not self.has_api_key():
-                return {
-                    "success": False,
-                    "error": "API Key não configurada"
-                }
-
-            response = requests.get(
-                f"{self.api_base_url}/v1/metrics/production",
-                headers=self.headers,
-                timeout=30
-            )
-
-            if response.status_code == 401:
-                return {
-                    "success": False,
-                    "error": "API Key inválida ou não autorizada"
-                }
-
-            response.raise_for_status()
-            return response.json()
-
-        except requests.exceptions.RequestException as e:
-            return {
-                "success": False,
-                "error": f"Erro ao buscar métricas de produção: {str(e)}"
-            }
+        """Busca métricas do modelo de produção via API (DEPRECATED - use get_model_details)"""
+        return self.get_model_details("BiLSTM - Deep Learning")
 
     def get_model_comparison(self) -> Dict[str, Any]:
         """Busca comparação entre modelos baseline e produção via API"""
