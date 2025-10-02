@@ -9,3 +9,5 @@ keras
 seaborn
 matplotlib
 python-dotenv
+mlflow
+google-cloud-storage
