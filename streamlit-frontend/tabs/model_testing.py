@@ -1,16 +1,26 @@
 import streamlit as st
+from mlflow_direct_client import MLflowDirectClient
 
 
 def render_model_testing_tab(api_client, api_status):
     """Renderiza a tab de Model Testing - Teste simples com modelo de produção"""
     st.header("🧪 Teste de Predição")
 
-    if not api_status:
-        st.error("🚫 API não está disponível")
-        st.info("💡 Verifique se a API está online e se a API Key está configurada")
-        return
+    # Opção de usar MLflow direto
+    use_mlflow = st.checkbox("🔬 Usar MLflow Direto (sem API)", value=True,
+                             help="Carrega modelo diretamente do MLflow Registry")
 
-    st.info("🚀 **Modelo de Produção**: Testando com o modelo BiLSTM otimizado")
+    if use_mlflow:
+        st.info("🚀 **Modo**: MLflow Direto - Carregando modelo do Registry")
+        mlflow_client = MLflowDirectClient()
+        client = mlflow_client
+    else:
+        if not api_status:
+            st.error("🚫 API não está disponível")
+            st.info("💡 Verifique se a API está online e se a API Key está configurada")
+            return
+        st.info("🚀 **Modo**: Via API - Usando modelo de produção BiLSTM")
+        client = api_client
 
     # Input simples de texto
     user_text = st.text_area(
@@ -22,7 +32,7 @@ def render_model_testing_tab(api_client, api_status):
     if st.button("🚀 Analisar Sentimento", use_container_width=True):
         if user_text.strip():
             with st.spinner("Analisando com modelo de produção..."):
-                result = api_client.predict_production(user_text.strip())
+                result = client.predict_production(user_text.strip())
 
             if result["success"]:
                 prediction = result["prediction"]
