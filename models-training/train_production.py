@@ -34,12 +34,7 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Configure Google Cloud credentials for GCS artifact storage
-credentials_path = Path(__file__).parent / "mlflow-client-credentials.json"
-if credentials_path.exists():
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credentials_path)
-    print(f"✅ Google Cloud credentials configuradas: {credentials_path}")
-else:
-    print(f"⚠️ Arquivo de credenciais não encontrado: {credentials_path}")
+credentials_env = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 # Enable artifact uploads through MLflow proxy (required for remote tracking server)
 os.environ["MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD"] = "true"
@@ -118,17 +113,40 @@ def train_production_model(data_path="datasets/Reviews.csv"):
 
         print("sizes (antes balanceamento):", len(X_train), len(X_val), len(X_test))
 
-        # 1.1 Balanceamento (undersampling no treino)
-        train_df = pd.DataFrame({"text": X_train, "label": y_train})
-        n_min = train_df["label"].value_counts().min()
-        balanced_train = (
-            train_df.groupby("label", group_keys=False)
-                    .sample(n=n_min, random_state=42)
-                    .sample(frac=1.0, random_state=42)
-                    .reset_index(drop=True)
+        # # 1.1 Balanceamento (undersampling no treino e validação)
+        # train_df = pd.DataFrame({"text": X_train, "label": y_train})
+        # n_min_train = train_df["label"].value_counts().min()
+        # balanced_train = (
+        #     train_df.groupby("label", group_keys=False)
+        #             .sample(n=n_min_train, random_state=42)
+        #             .sample(frac=1.0, random_state=42)
+        #             .reset_index(drop=True)
+        # )
+        # X_train = balanced_train["text"].values
+        # y_train = balanced_train["label"].values
+
+        # val_df = pd.DataFrame({"text": X_val, "label": y_val})
+        # n_min_val = val_df["label"].value_counts().min()
+        # balanced_val = (
+        #     val_df.groupby("label", group_keys=False)
+        #           .sample(n=n_min_val, random_state=42)
+        #           .sample(frac=1.0, random_state=42)
+        #           .reset_index(drop=True)
+        # )
+        # X_val = balanced_val["text"].values
+        # y_val = balanced_val["label"].values
+
+        # print("sizes (após balanceamento):", len(X_train), len(X_val), len(X_test))
+
+        # 1.1 Calcular class weights
+        from sklearn.utils.class_weight import compute_class_weight
+        class_weights = compute_class_weight(
+            class_weight='balanced',
+            classes=np.unique(y_train),
+            y=y_train
         )
-        X_train = balanced_train["text"].values
-        y_train = balanced_train["label"].values
+        class_weight_dict = {i: w for i, w in enumerate(class_weights)}
+        print(f"Class weights: {class_weight_dict}")
 
         # 2) Vetorização (Keras)
         VOCAB_SIZE = 30_000
@@ -177,10 +195,14 @@ def train_production_model(data_path="datasets/Reviews.csv"):
         mlflow.log_param("batch_size", BATCH)
         mlflow.log_param("lstm_units", 64)
         mlflow.log_param("optimizer", "Adam")
-        mlflow.log_param("learning_rate", 1e-3)
-        mlflow.log_param("dropout_rate", 0.3)
-        mlflow.log_param("recurrent_dropout", 0.1)
+        mlflow.log_param("learning_rate", 0.0005)
+        mlflow.log_param("lstm_dropout", 0.3)
+        mlflow.log_param("lstm_recurrent_dropout", 0.2)
+        mlflow.log_param("dnn_dropout", 0.4)
+        mlflow.log_param("l2_regularization", 0.001)
         mlflow.log_param("clipnorm", 1.0)
+        mlflow.log_param("dnn_layer1_units", 128)
+        mlflow.log_param("dnn_layer2_units", 64)
 
         model = build_bilstm64_dnn(vectorizer, VOCAB_SIZE, EMBED_DIM)
         model.summary()
@@ -188,8 +210,8 @@ def train_production_model(data_path="datasets/Reviews.csv"):
         mlflow.log_param("total_params", model.count_params())
 
         # 5) Treino
-        ES = callbacks.EarlyStopping(monitor="val_loss", patience=6, restore_best_weights=True)
-        RLROP = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, min_lr=1e-6, verbose=1)
+        ES = callbacks.EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True, min_delta=0.001)
+        RLROP = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, min_lr=1e-6, verbose=1)
         CKPT = callbacks.ModelCheckpoint("production_best.keras", monitor="val_loss", save_best_only=True)
 
         history = model.fit(
@@ -197,11 +219,10 @@ def train_production_model(data_path="datasets/Reviews.csv"):
             validation_data=val_ds,
             epochs=50,
             callbacks=[ES, RLROP, CKPT],
+            class_weight=class_weight_dict,
             verbose=1
         )
 
-        # EarlyStopping com restore_best_weights=True já restaurou os melhores pesos
-        # O modelo agora está no estado da melhor época
         best_epoch = np.argmin(history.history['val_loss'])
         print(f"\n{'='*60}")
         print(f"📊 MELHOR ÉPOCA: {best_epoch + 1} (de {len(history.history['loss'])} épocas treinadas)")
@@ -214,7 +235,6 @@ def train_production_model(data_path="datasets/Reviews.csv"):
         print(f"{'='*60}\n")
         print("✅ Pesos restaurados para a melhor época pelo EarlyStopping")
 
-        # Log best epoch number and validation metrics from history
         mlflow.log_metric("best_epoch", best_epoch + 1)
         mlflow.log_metric("best_val_loss", history.history['val_loss'][best_epoch])
         mlflow.log_metric("best_val_accuracy", history.history['val_accuracy'][best_epoch])
@@ -222,7 +242,7 @@ def train_production_model(data_path="datasets/Reviews.csv"):
         mlflow.log_metric("best_val_precision", history.history['val_precision'][best_epoch])
         mlflow.log_metric("best_val_recall", history.history['val_recall'][best_epoch])
 
-        # Salvar contagem total de épocas treinadas (pode ser útil para análise)
+        # Salvar contagem total de épocas treinadas
         mlflow.log_metric("total_epochs_trained", len(history.history['loss']))
 
         # 6) Threshold ótimo (val)

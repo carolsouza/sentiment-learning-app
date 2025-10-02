@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras import layers, models, optimizers
+from tensorflow.keras import layers, models, optimizers, regularizers
 
 
 def build_bilstm64_dnn(vectorizer, VOCAB_SIZE, EMBED_DIM):
@@ -13,22 +13,22 @@ def build_bilstm64_dnn(vectorizer, VOCAB_SIZE, EMBED_DIM):
 
     # BiLSTM com dropout moderado; clipnorm ajuda contra exploding grads
     x = layers.Bidirectional(
-        layers.LSTM(64, return_sequences=True, dropout=0.2, recurrent_dropout=0.1)
+        layers.LSTM(64, return_sequences=True, dropout=0.3, recurrent_dropout=0.2)
     )(x)
 
     # Pooling robusto (tenta também GlobalAveragePooling1D + GlobalMaxPooling1D concatenados)
     x = layers.GlobalMaxPooling1D()(x)
 
     # Head DNN
-    x = layers.Dense(128, activation="relu")(x)
-    x = layers.Dropout(0.3)(x)
-    x = layers.Dense(64, activation="relu")(x)
-    x = layers.Dropout(0.3)(x)
+    x = layers.Dense(128, activation="relu", kernel_regularizer=regularizers.l2(0.001))(x)
+    x = layers.Dropout(0.4)(x)
+    x = layers.Dense(64, activation="relu", kernel_regularizer=regularizers.l2(0.001))(x)
+    x = layers.Dropout(0.4)(x)
 
     out = layers.Dense(1, activation="sigmoid", dtype="float32")(x)
 
     model = models.Model(inp, out, name="bilstm64_dnn")
-    opt = optimizers.Adam(1e-3, clipnorm=1.0)  # clipnorm p/ estabilidade
+    opt = optimizers.Adam(0.0005, clipnorm=1.0)  # clipnorm p/ estabilidade
     model.compile(
         loss="binary_crossentropy",
         optimizer=opt,

@@ -34,12 +34,7 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Configure Google Cloud credentials for GCS artifact storage
-credentials_path = Path(__file__).parent / "mlflow-client-credentials.json"
-if credentials_path.exists():
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credentials_path)
-    print(f"✅ Google Cloud credentials configuradas: {credentials_path}")
-else:
-    print(f"⚠️ Arquivo de credenciais não encontrado: {credentials_path}")
+credentials_env = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 # Enable artifact uploads through MLflow proxy (required for remote tracking server)
 os.environ["MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD"] = "true"
@@ -158,16 +153,16 @@ def train_baseline_model(data_path="datasets/Reviews.csv"):
         EMBED_DIM = 128
 
         # Enable autologging for metrics only (disable params, models, and datasets)
-        mlflow.tensorflow.autolog(
-            log_models=False,
-            log_datasets=False,
-            log_input_examples=False,
-            log_model_signatures=False,
-            disable=False,
-            exclusive=False,
-            disable_for_unsupported_versions=False,
-            silent=False
-        )
+        # mlflow.tensorflow.autolog(
+        #     log_models=False,
+        #     log_datasets=False,
+        #     log_input_examples=False,
+        #     log_model_signatures=False,
+        #     disable=False,
+        #     exclusive=False,
+        #     disable_for_unsupported_versions=False,
+        #     silent=False
+        # )
 
         # Log hyperparameters manually
         mlflow.log_param("model_type", "baseline_dnn_pool")
@@ -278,7 +273,7 @@ def train_baseline_model(data_path="datasets/Reviews.csv"):
         output_schema = Schema([TensorSpec(np.dtype(np.float32), (-1, 1), name="predictions")])
         signature = ModelSignature(inputs=input_schema, outputs=output_schema)
 
-        # Log model to MLflow with signature (without auto-registration)
+        # Log model to MLflow with signature
         mlflow.tensorflow.log_model(
             model=model,
             artifact_path="model",
