@@ -44,10 +44,12 @@ class MLflowDirectClient:
         try:
             # Carrega a versão mais recente do modelo
             client = mlflow.tracking.MlflowClient()
+            print(f"🔍 Buscando versões do modelo '{model_name}'...")
             latest_version = client.get_latest_versions(model_name, stages=["None", "Staging", "Production"])[0]
             model_uri = f"models:/{model_name}/{latest_version.version}"
 
             print(f"🔄 Carregando modelo '{model_name}' versão {latest_version.version}...")
+            print(f"📍 URI: {model_uri}")
             model = mlflow.tensorflow.load_model(model_uri)
 
             # Salva em cache
@@ -57,7 +59,12 @@ class MLflowDirectClient:
             return model
 
         except Exception as e:
-            print(f"❌ Erro ao carregar modelo '{model_name}': {e}")
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"❌ Erro ao carregar modelo '{model_name}':")
+            print(f"Tipo: {type(e).__name__}")
+            print(f"Mensagem: {str(e)}")
+            print(f"Traceback completo:\n{error_details}")
             return None
 
     def predict_baseline(self, text: str) -> Dict[str, Any]:
@@ -86,7 +93,7 @@ class MLflowDirectClient:
             if model is None:
                 return {
                     "success": False,
-                    "error": f"Modelo '{model_name}' não pôde ser carregado"
+                    "error": f"Modelo '{model_name}' não pôde ser carregado. Verifique os logs no terminal para mais detalhes."
                 }
 
             # Faz predição
