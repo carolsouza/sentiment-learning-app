@@ -58,11 +58,6 @@ def train_production_model(data_path="datasets/Reviews.csv"):
     print(f"📊 Experiment ID: {experiment.experiment_id}")
     print(f"📊 Artifact Location: {experiment.artifact_location}")
 
-    # If artifact location is /tmp (old experiment), warn the user
-    if experiment.artifact_location.startswith('/tmp'):
-        print("⚠️  AVISO: Experiment configurado com artifact location local (/tmp)")
-        print("⚠️  Artifacts não serão persistidos! Considere criar novo experiment.")
-
     # Start MLflow run
     with mlflow.start_run(run_name="production_bilstm64_dnn") as run:
         print(f"🔗 Run ID: {run.info.run_id}")

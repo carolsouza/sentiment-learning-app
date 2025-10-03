@@ -101,17 +101,30 @@ def train_baseline_model(data_path="datasets/Reviews.csv"):
 
         print("sizes (antes balanceamento):", len(X_train), len(X_val), len(X_test))
 
-        # 1.1 Balanceamento (undersampling no treino)
+        # 1.1 Balanceamento (undersampling no treino e validação)
         train_df = pd.DataFrame({"text": X_train, "label": y_train})
-        n_min = train_df["label"].value_counts().min()
+        n_min_train = train_df["label"].value_counts().min()
         balanced_train = (
             train_df.groupby("label", group_keys=False)
-                    .sample(n=n_min, random_state=42)
+                    .sample(n=n_min_train, random_state=42)
                     .sample(frac=1.0, random_state=42)
                     .reset_index(drop=True)
         )
         X_train = balanced_train["text"].values
         y_train = balanced_train["label"].values
+
+        val_df = pd.DataFrame({"text": X_val, "label": y_val})
+        n_min_val = val_df["label"].value_counts().min()
+        balanced_val = (
+            val_df.groupby("label", group_keys=False)
+                  .sample(n=n_min_val, random_state=42)
+                  .sample(frac=1.0, random_state=42)
+                  .reset_index(drop=True)
+        )
+        X_val = balanced_val["text"].values
+        y_val = balanced_val["label"].values
+
+        print("sizes (após balanceamento):", len(X_train), len(X_val), len(X_test))
 
         # 2) Vetorização (Keras)
         VOCAB_SIZE = 30_000
